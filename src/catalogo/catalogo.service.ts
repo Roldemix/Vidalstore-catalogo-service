@@ -4,6 +4,7 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 import { ROUTING_KEYS } from '../mensajeria/topologia';
 import { RabbitService } from '../rabbit/rabbit.service';
+import { KafkaService } from '../kafka/kafka.service';
 import { ActualizarJuegoDto, CrearJuegoDto } from './dto';
 
 export interface Juego {
@@ -21,7 +22,10 @@ export class CatalogoService {
     readFileSync(join(process.cwd(), 'data', 'juegos.json'), 'utf-8'),
   ) as Juego[];
 
-  constructor(private readonly rabbit: RabbitService) {}
+  constructor(
+    private readonly rabbit: RabbitService,
+    private readonly kafka: KafkaService,
+  ) {}
 
   findAll(): Juego[] {
     return this.juegos;
@@ -31,14 +35,31 @@ export class CatalogoService {
     const juego: Juego = { id: randomUUID(), titulo: dto.titulo, precio: dto.precio };
     this.juegos.push(juego);
     const eventoPublicado = await this.publicar(juego, editorSub);
+    await this.publicarKafka(juego, 'juego.publicado');
     return { ...juego, eventoPublicado };
   }
 
-  actualizar(id: string, dto: ActualizarJuegoDto): Juego {
+  async actualizar(id: string, dto: ActualizarJuegoDto): Promise<Juego> {
     const juego = this.juegos.find((j) => j.id === id);
     if (!juego) throw new NotFoundException('El juego no existe');
     Object.assign(juego, dto);
+    await this.publicarKafka(juego, 'precio.cambiado');
     return juego;
+  }
+
+  private async publicarKafka(
+    juego: Juego,
+    tipo: 'juego.publicado' | 'precio.cambiado',
+  ): Promise<void> {
+    try {
+      await this.kafka.publicar(juego, tipo);
+    } catch (error) {
+      this.logger.error(
+        `EVENTO KAFKA NO PUBLICADO (${tipo}, ${juego.id}): ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
   }
 
   private async publicar(juego: Juego, editorSub: string): Promise<boolean> {
