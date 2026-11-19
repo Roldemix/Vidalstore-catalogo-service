@@ -20,20 +20,27 @@ export class KafkaService implements OnModuleDestroy {
     juego: { id: string; titulo: string; precio: number },
     tipo: 'juego.publicado' | 'precio.cambiado',
   ): Promise<void> {
+    const eventoId = randomUUID();
+    const emitidoEn = new Date().toISOString();
     await this.producer.send({
       messages: [
         {
           topic: 'vidalstore.catalogo',
           key: juego.id,
+          // Contrato version 1 completo en el value.
           value: JSON.stringify({
+            eventoId,
+            tipo,
+            version: 1,
+            emitidoEn,
             juegoId: juego.id,
             titulo: juego.titulo,
             precio: juego.precio,
           }),
           headers: {
-            'x-evento-id': randomUUID(),
+            'x-evento-id': eventoId,
             'x-tipo-evento': tipo,
-            'x-emitido-en': new Date().toISOString(),
+            'x-emitido-en': emitidoEn,
           },
         },
       ],
